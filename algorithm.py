@@ -246,7 +246,7 @@ def adaptive_bee_optimization_live(objective_functions,
         switch_counter += 1
 
         # Plot convergence
-        if it % 5 == 0:
+        if it % 1 == 0:
 
             line.set_data(
                 range(len(fitness_history)),
