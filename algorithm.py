@@ -44,10 +44,10 @@ def scalar_score(v):
 def adaptive_bee_optimization_live(objective_functions,
                                    min_bounds,
                                    max_bounds,
-                                   num_bees=200,
+                                   num_bees=300,
                                    max_iterations=500,
                                    switch_iterations=20,
-                                   patience=20,
+                                   patience=20, #can be changed up to 40
                                    initial_radius=0.3,
                                    final_radius=0.01,
                                    archive_size=10,
@@ -91,8 +91,8 @@ def adaptive_bee_optimization_live(objective_functions,
 
     elite_count = max(1, int(0.05 * num_bees))
 
-    levy_prob = 0.2
-    scout_ratio = 0.2
+    levy_prob = 0.35 #can be up to 0.3 or 0.4
+    scout_ratio = 0.25 #can be up to 0.3
 
     # Convergence plot
     plt.ion()
@@ -235,7 +235,11 @@ def adaptive_bee_optimization_live(objective_functions,
 
         # Elite Reinforcement
         for rank_idx, ei in enumerate(elites_idx):
-            positions[rank_idx] = positions[ei].copy()
+            if np.random.rand() < 0.7:
+                positions[rank_idx] = positions[ei] + np.random.normal(
+                    0, 0.02*(ub-lb),
+                    size=dims
+        )
 
         positions[0] = best_pos.copy()
 

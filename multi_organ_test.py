@@ -45,6 +45,7 @@ def simulate_organ_signals(control, steps=30):
         neural_hist.append(state[3])
         resp_hist.append(state[4])
 
+
     return (
         np.mean(cardiac_hist),
         np.mean(resp_hist),
@@ -170,10 +171,33 @@ def multi_organ_coupled_system(params):
 
         # Coupled dynamics
 
-        dH = k_hr*(1 - H) - 0.3*M + 0.2*R
-        dR = k_oxygen*(H - R)
-        dN = k_neural*(R - 0.8) - 0.4*(N-1)**3
-        dM = k_metabolic*(1.2 - R) + 0.1*abs(N-1)
+        chaos_drive = np.sin(3*H) * np.cos(2*N)
+
+        dH = (
+            k_hr*(1 - H)
+            - 0.7*M
+            + 0.4*np.tanh(R)
+            - 0.3*H**3
+            + 0.15*chaos_drive
+        )
+
+        dR = (
+            k_oxygen*(H - R)
+            + 0.25*np.sin(5*R)
+            - 0.1*N
+        )
+
+        dN = (
+            k_neural*(R - 0.8)
+            - 1.0*(N-0.5)*(N-1.5)*(N-1.0)
+            + 0.35*np.sin(4*N)
+        )
+
+        dM = (
+            k_metabolic*(1.2 - R)
+            + 0.15*np.abs(N-1)
+            + 0.1*np.cos(3*M)
+        )
 
         H += dt*dH
         R += dt*dR
@@ -194,31 +218,100 @@ def multi_organ_coupled_system(params):
 
     heart_var = np.var(heart_trace)
     neural_var = np.var(neural_trace)
-    metabolic_mean = np.mean(metabolic_trace)
+    metabolic_balance = abs(np.mean(metabolic_trace) - 0.9)
+    metabolic_instability = np.var(metabolic_trace)
     oxygen_deficit = np.mean(np.maximum(0, 1 - resp_trace))
+
+    # Stability diagnostics printing (research logging only)
+
+
 
     # Return multi-objective vector
     return np.array([
         heart_var,
         neural_var,
-        metabolic_mean,
-        oxygen_deficit
+        metabolic_instability,
+        oxygen_deficit,
+        metabolic_balance
         ])
 
+def robustness_under_stress(params, shock_magnitude=0.3):
 
+    k_hr, k_oxygen, k_neural, k_metabolic = params
+
+    H = 1.0
+    R = 1.0
+    N = 1.0
+    M = 1.0
+
+    dt = 0.05
+    T = 200
+
+    heart_trace = []
+    resp_trace = []
+    neural_trace = []
+    metabolic_trace = []
+
+    for t in range(T):
+
+        # Apply shock at midpoint
+        if t == int(T/2):
+            H += np.random.uniform(-shock_magnitude, shock_magnitude)
+            R += np.random.uniform(-shock_magnitude, shock_magnitude)
+
+        dH = k_hr*(1 - H) - 0.5*M + 0.3*R - 0.2*H**3
+        dR = k_oxygen*(H - R)
+        dN = k_neural*(R - 0.8) - 0.8*(N - 0.6)*(N - 1.4)*(N - 1.0)
+        dM = k_metabolic*(1.2 - R) + 0.1*abs(N-1)
+
+        H += dt*dH
+        R += dt*dR
+        N += dt*dN
+        M += dt*dM
+
+        heart_trace.append(H)
+        resp_trace.append(R)
+        neural_trace.append(N)
+        metabolic_trace.append(M)
+
+    heart_trace = np.array(heart_trace)
+    resp_trace = np.array(resp_trace)
+    neural_trace = np.array(neural_trace)
+    metabolic_trace = np.array(metabolic_trace)
+
+    # Robustness metrics
+
+    recovery_time_penalty = np.mean(np.abs(heart_trace[-50:] - 1))
+
+    shock_response_variance = np.var(
+        heart_trace[int(T/2):]
+    )
+
+    oxygen_violation = np.mean(np.maximum(0, 1 - resp_trace))
+
+    return np.array([
+        np.var(heart_trace),
+        np.var(neural_trace),
+        np.var(metabolic_trace),
+        oxygen_violation,
+        recovery_time_penalty + shock_response_variance
+    ])
 
 #benchmarking code
 
 if __name__ == "__main__":
 
-    dims = 4
+    dims = 5
 
     min_bounds = [0, 0, 0, 0]
     max_bounds = [2, 2, 2, 2]
 
-    num_bees = 120
-    max_iterations = 200
-    runs = 30
+    num_bees = 200
+    max_iterations = 300
+    runs = 20
+    
+    
+
 
     def run_experiment():
 
@@ -230,12 +323,12 @@ if __name__ == "__main__":
             print(f"Running trial {seed+1}/{runs}")
 
             best_pos, best_fit, history = adaptive_bee_optimization_live(
-                objective_functions=[multi_organ_coupled_system],
+                objective_functions=[robustness_under_stress],
                 min_bounds=min_bounds,
                 max_bounds=max_bounds,
                 num_bees=num_bees,
                 max_iterations=max_iterations,
-                archive_size=10,
+                archive_size=10, #10 -12
                 seed=seed
             )
 
@@ -255,9 +348,7 @@ if __name__ == "__main__":
     print("Best Fitness :", np.min(results))
     print("Worst Fitness:", np.max(results))
 
-    # =====================================================
-    # Convergence Visualization with Confidence Interval
-    # =====================================================
+
 
     avg_curve = np.mean(histories, axis=0)
 
