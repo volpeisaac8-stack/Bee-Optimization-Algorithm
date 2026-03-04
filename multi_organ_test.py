@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 from algorithm import *
+from animation import demo_animation
 
 
 # Synthetic Multi-Organ Homeostasis Sandbox Model
@@ -296,6 +297,46 @@ def robustness_under_stress(params, shock_magnitude=0.3):
         oxygen_violation,
         recovery_time_penalty + shock_response_variance
     ])
+
+
+
+#test graph 
+def plot_search_landscape(model_func):
+
+    x = np.linspace(0, 2, 50)
+    y = np.linspace(0, 2, 50)
+
+    X, Y = np.meshgrid(x, y)
+
+    Z = np.zeros_like(X)
+
+    # Evaluate landscape
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
+
+            params = np.array([
+                X[i,j],
+                Y[i,j],
+                1.0,
+                1.0
+            ])
+
+            Z[i,j] = scalar_score(model_func(params))
+
+    fig = plt.figure(figsize=(8,6))
+    ax = fig.add_subplot(111, projection='3d')
+
+    ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8)
+
+    plt.title("Physiological Stability Search Landscape")
+    plt.xlabel("Control Parameter 1")
+    plt.ylabel("Control Parameter 2")
+    ax.set_zlabel("Fitness")
+
+    plt.show()
+plot_search_landscape(robustness_under_stress)
+
+
 
 #benchmarking code
 
