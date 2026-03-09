@@ -299,7 +299,6 @@ def robustness_under_stress(params, shock_magnitude=0.3):
     ])
 
 
-
 #test graph 
 def plot_search_landscape(model_func):
 
@@ -338,8 +337,7 @@ plot_search_landscape(robustness_under_stress)
 
 
 
-#benchmarking code
-
+#benchmarking co")
 if __name__ == "__main__":
 
     dims = 5

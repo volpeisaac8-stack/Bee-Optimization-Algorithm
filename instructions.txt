@@ -1,1 +1,3 @@
 Update levey flight possibility and patience to avoid basin issues
+
+In order to run the simulation close out the first two windows
