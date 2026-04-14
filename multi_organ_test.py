@@ -3,7 +3,9 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from algorithm import *
 from animation import demo_animation
-
+import json
+import pandas as pd 
+import os
 
 # Synthetic Multi-Organ Homeostasis Sandbox Model
 
@@ -335,9 +337,72 @@ def plot_search_landscape(model_func):
     plt.show()
 plot_search_landscape(robustness_under_stress)
 
+#saving code
+
+def save_experiment_results(run_id, best_pos, best_fit, history, folder="results"):
+    
+    os.makedirs(folder, exist_ok=True)
+
+    # Evaluate full objective vector (IMPORTANT)
+    true_obj = robustness_under_stress(best_pos)
+
+    summary_file = os.path.join(folder, "summary.csv")
+
+    summary_data = pd.DataFrame([{
+        "run": run_id,
+        "seed": run_id,
+        "best_fitness": best_fit,
+
+        # Parameters
+        "k_hr": best_pos[0],
+        "k_oxygen": best_pos[1],
+        "k_neural": best_pos[2],
+        "k_metabolic": best_pos[3],
+
+        # Objective breakdown (CRITICAL FOR RESEARCH)
+        "heart_var": true_obj[0],
+        "neural_var": true_obj[1],
+        "metabolic_var": true_obj[2],
+        "oxygen_deficit": true_obj[3],
+        "recovery_penalty": true_obj[4]
+    }])
+
+    if os.path.exists(summary_file):
+        summary_data.to_csv(summary_file, mode='a', header=False, index=False)
+    else:
+        summary_data.to_csv(summary_file, index=False)
+
+    # Save convergence curve
+    history_file = os.path.join(folder, f"history_run_{run_id}.csv")
+
+    history_df = pd.DataFrame({
+        "iteration": np.arange(len(history)),
+        "fitness": history
+    })
+
+    history_df.to_csv(history_file, index=False)
 
 
-#benchmarking co")
+def save_metadata():
+
+    os.makedirs("results", exist_ok=True)
+
+    metadata = {
+        "num_bees": num_bees,
+        "max_iterations": max_iterations,
+        "runs": runs,
+        "bounds": {
+            "min": min_bounds,
+            "max": max_bounds
+        },
+        "algorithm": "Adaptive Bee Optimization",
+        "objective": "robustness_under_stress"
+    }
+
+    with open("results/metadata.json", "w") as f:
+        json.dump(metadata, f, indent=4)
+
+#benchmarking code
 if __name__ == "__main__":
 
     dims = 5
@@ -347,7 +412,7 @@ if __name__ == "__main__":
 
     num_bees = 200
     max_iterations = 300
-    runs = 20
+    runs = 2
     
     
 
@@ -373,6 +438,13 @@ if __name__ == "__main__":
 
             results.append(best_fit)
             histories.append(history)
+
+            save_experiment_results(
+                run_id=seed,
+                best_pos=best_pos,
+                best_fit=best_fit,
+                history=history
+            )
 
         return np.array(results), np.array(histories)
 
@@ -425,3 +497,7 @@ if __name__ == "__main__":
 
     plt.legend()
     plt.show()
+
+    save_metadata()
+    print("Results saved to /results folder")
+
