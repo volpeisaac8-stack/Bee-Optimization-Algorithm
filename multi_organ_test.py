@@ -62,7 +62,7 @@ def cardiovascular_layer(state, control):
 
     rhythm = state[0]
 
-    noise = np.random.normal(0, 0.008)
+    noise = np.random.normal(0, 0.01 + 0.02*np.abs(state[0] - 1))
 
     rhythm = (
         0.97 * rhythm
@@ -174,7 +174,12 @@ def multi_organ_coupled_system(params):
 
         # Coupled dynamics
 
-        chaos_drive = np.sin(3*H) * np.cos(2*N)
+        chaos_drive = (
+            0.2*np.sin(3*H)*np.cos(2*N) +
+            0.15*np.sin(7*H + 0.5*N) +
+            0.1*np.cos(11*N) +
+            0.05*np.sin(20*H*N)
+        )
 
         dH = (
             k_hr*(1 - H)
@@ -412,7 +417,7 @@ if __name__ == "__main__":
 
     num_bees = 200
     max_iterations = 300
-    runs = 2
+    runs = 20
     
     
 
