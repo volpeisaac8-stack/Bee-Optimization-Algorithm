@@ -295,7 +295,7 @@ def robustness_under_stress(params, shock_magnitude=0.3):
         heart_trace[int(T/2):]
     )
 
-    oxygen_violation = np.mean(np.maximum(0, 1 - resp_trace))
+    oxygen_violation = np.mean(np.maximum(0, 1.05 - resp_trace))
 
     return np.array([
         np.var(heart_trace),
