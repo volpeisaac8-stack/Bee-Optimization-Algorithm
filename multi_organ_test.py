@@ -450,6 +450,85 @@ def save_metadata():
     with open("results/metadata.json", "w") as f:
         json.dump(metadata, f, indent=4)
 
+
+#plot generation
+
+def generate_research_plots(histories):
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    histories = np.array(histories)
+
+    # --- Aggregate stats ---
+    mean_curve = np.mean(histories, axis=0)
+    std_curve = np.std(histories, axis=0)
+    iterations = np.arange(len(mean_curve))
+
+    # 1. LOG-SCALE CONVERGENCE
+    plt.figure(figsize=(7,4))
+    plt.plot(iterations, mean_curve, label="Mean Fitness")
+    plt.fill_between(iterations,
+                     mean_curve - std_curve,
+                     mean_curve + std_curve,
+                     alpha=0.2)
+    plt.yscale("log")
+    plt.xlabel("Iteration")
+    plt.ylabel("Fitness (log scale)")
+    plt.title("Convergence with Confidence Interval")
+    plt.legend()
+    plt.show()
+
+    # 2. IMPROVEMENT PER ITERATION
+    improvement = -np.diff(mean_curve)
+
+    plt.figure(figsize=(7,4))
+    plt.plot(improvement)
+    plt.xlabel("Iteration")
+    plt.ylabel("Fitness Improvement")
+    plt.title("Improvement per Iteration")
+    plt.show()
+
+    # 3. STAGNATION ANALYSIS
+    stagnation = [0]
+
+    for i in range(1, len(mean_curve)):
+        if mean_curve[i] < mean_curve[i-1]:
+            stagnation.append(0)
+        else:
+            stagnation.append(stagnation[-1] + 1)
+
+    plt.figure(figsize=(7,4))
+    plt.plot(stagnation)
+    plt.xlabel("Iteration")
+    plt.ylabel("Stagnation Length")
+    plt.title("Stagnation Over Time")
+    plt.show()
+
+    # 4. CUMULATIVE IMPROVEMENT
+    cumulative = mean_curve[0] - mean_curve
+
+    plt.figure(figsize=(7,4))
+    plt.plot(iterations, cumulative)
+    plt.xlabel("Iteration")
+    plt.ylabel("Total Improvement")
+    plt.title("Cumulative Improvement")
+    plt.show()
+
+    # 5. ROLLING VARIANCE 
+    window = 10
+    rolling_var = [
+        np.var(mean_curve[max(0, i-window):i+1])
+        for i in range(len(mean_curve))
+    ]
+
+    plt.figure(figsize=(7,4))
+    plt.plot(rolling_var)
+    plt.xlabel("Iteration")
+    plt.ylabel("Variance")
+    plt.title("Rolling Variance of Fitness")
+    plt.show()
+
+
 #benchmarking code
 if __name__ == "__main__":
 
@@ -548,4 +627,6 @@ if __name__ == "__main__":
 
     save_metadata()
     print("Results saved to /results folder")
+
+    generate_research_plots(histories)
 
