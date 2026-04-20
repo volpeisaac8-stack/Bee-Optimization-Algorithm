@@ -539,7 +539,8 @@ if __name__ == "__main__":
 
     num_bees = 200
     max_iterations = 300
-    runs = 20
+    
+    runs = int(input("How many runs: ")) #20
     
     
 
