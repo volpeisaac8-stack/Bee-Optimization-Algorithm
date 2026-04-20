@@ -307,38 +307,81 @@ def robustness_under_stress(params, shock_magnitude=0.3):
 
 
 #test graph 
-def plot_search_landscape(model_func):
+def plot_search_landscape(model_func, resolution=120, avg_runs=3):
 
-    x = np.linspace(0, 2, 50)
-    y = np.linspace(0, 2, 50)
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # Parameter ranges
+    x = np.linspace(0, 2, resolution)
+    y = np.linspace(0, 2, resolution)
 
     X, Y = np.meshgrid(x, y)
 
-    Z = np.zeros_like(X)
+    # Allocate surfaces
+    Z_total = np.zeros_like(X)
+    Z_heart = np.zeros_like(X)
+    Z_oxygen = np.zeros_like(X)
+
+    # Averaged evaluation (handles stochasticity)
+    def evaluate_avg(params):
+        vals = []
+        objs = []
+
+        for _ in range(avg_runs):
+            obj = model_func(params)
+            objs.append(obj)
+            vals.append(np.mean(obj))  # scalar projection
+
+        return np.mean(vals), np.mean(objs, axis=0)
 
     # Evaluate landscape
     for i in range(X.shape[0]):
         for j in range(X.shape[1]):
 
             params = np.array([
-                X[i,j],
-                Y[i,j],
-                1.0,
-                1.0
+                X[i, j],   # k_hr
+                Y[i, j],   # k_oxygen
+                1.0,       # fixed
+                1.0        # fixed
             ])
 
-            Z[i,j] = scalar_score(model_func(params))
+            val, obj = evaluate_avg(params)
 
-    fig = plt.figure(figsize=(8,6))
-    ax = fig.add_subplot(111, projection='3d')
+            Z_total[i, j] = val
+            Z_heart[i, j] = obj[0]        # heart variance
+            Z_oxygen[i, j] = obj[3]       # oxygen deficit
 
-    ax.plot_surface(X, Y, Z, cmap='viridis', alpha=0.8)
+    # Log scaling (reveals subtle variation)
+    Z_total = np.log1p(Z_total)
+    Z_heart = np.log1p(Z_heart)
+    Z_oxygen = np.log1p(Z_oxygen)
 
-    plt.title("Physiological Stability Search Landscape")
-    plt.xlabel("Control Parameter 1")
-    plt.ylabel("Control Parameter 2")
-    ax.set_zlabel("Fitness")
+    # Plot multiple surfaces
+    fig = plt.figure(figsize=(18, 5))
 
+    # --- Total Fitness ---
+    ax1 = fig.add_subplot(131, projection='3d')
+    ax1.plot_surface(X, Y, Z_total, cmap='viridis')
+    ax1.set_title("Scalar Fitness Landscape (Log Scaled)")
+    ax1.set_xlabel("k_hr")
+    ax1.set_ylabel("k_oxygen")
+
+    # --- Heart Variance ---
+    ax2 = fig.add_subplot(132, projection='3d')
+    ax2.plot_surface(X, Y, Z_heart, cmap='plasma')
+    ax2.set_title("Heart Variance Landscape")
+    ax2.set_xlabel("k_hr")
+    ax2.set_ylabel("k_oxygen")
+
+    # --- Oxygen Deficit ---
+    ax3 = fig.add_subplot(133, projection='3d')
+    ax3.plot_surface(X, Y, Z_oxygen, cmap='inferno')
+    ax3.set_title("Oxygen Deficit Landscape")
+    ax3.set_xlabel("k_hr")
+    ax3.set_ylabel("k_oxygen")
+
+    plt.tight_layout()
     plt.show()
 plot_search_landscape(robustness_under_stress)
 
