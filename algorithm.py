@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
-import os
+
 
 # Helper Functions
 
@@ -30,14 +29,70 @@ def mirror_population(positions, lb, ub):
     return np.clip(mirrored, lb, ub)
 
 
+# Batched ODE Evaluator — evaluates entire swarm in one vectorized pass
 
-# Scalar Fitness Projection
+def robustness_batch(population, shock_magnitude=0.3, K=3):
+    """
+    Evaluate entire swarm at once using vectorized numpy.
+    population shape: (N_bees, 4)
+    returns fitness shape: (N_bees,)
+    """
+    N_bees = population.shape[0]
+    T = 200
+    dt = 0.02
+    shock_t = T // 2
 
+    H = np.ones(N_bees)
+    R = np.ones(N_bees)
+    N = np.ones(N_bees)
+    M = np.ones(N_bees)
 
-def scalar_score(v):
-    v = np.array(v)
-    w = np.ones(len(v)) / len(v)   # equal weighting automatically
-    return np.sum(w * v)
+    k_hr        = population[:, 0]
+    k_oxygen    = population[:, 1]
+    k_neural    = population[:, 2]
+    k_metabolic = population[:, 3]
+
+    heart_trace     = np.empty((T, N_bees))
+    resp_trace      = np.empty((T, N_bees))
+    neural_trace    = np.empty((T, N_bees))
+    metabolic_trace = np.empty((T, N_bees))
+
+    shock_H = np.random.uniform(-shock_magnitude, shock_magnitude, N_bees)
+    shock_R = np.random.uniform(-shock_magnitude, shock_magnitude, N_bees)
+
+    for t in range(T):
+        if t == shock_t:
+            H += shock_H
+            R += shock_R
+
+        dH = k_hr*(1 - H) - 0.5*M + 0.3*R - 0.2*H**3
+        dR = k_oxygen*(H - R)
+        dN = k_neural*(R - 0.8) - 0.8*(N - 0.6)*(N - 1.4)*(N - 1.0)
+        dM = k_metabolic*(1.2 - R) + 0.1*np.abs(N - 1)
+
+        H = np.clip(H + dt*dH, 0, 2)
+        R = np.clip(R + dt*dR, 0, 2)
+        N = np.clip(N + dt*dN, 0, 2)
+        M = np.clip(M + dt*dM, 0, 2)
+
+        heart_trace[t]     = H
+        resp_trace[t]      = R
+        neural_trace[t]    = N
+        metabolic_trace[t] = M
+
+    recovery_penalty   = np.mean(np.abs(heart_trace[-50:] - 1), axis=0)
+    shock_response_var = np.var(heart_trace[shock_t:], axis=0)
+    oxygen_violation   = np.mean(np.maximum(0, 1.05 - resp_trace), axis=0)
+
+    fitness = (
+        np.var(heart_trace, axis=0)
+        + np.var(neural_trace, axis=0)
+        + np.var(metabolic_trace, axis=0)
+        + oxygen_violation
+        + recovery_penalty + shock_response_var
+    )
+
+    return fitness  # shape: (N_bees,)
 
 
 # Adaptive Bee Optimization Live Engine
@@ -48,7 +103,7 @@ def adaptive_bee_optimization_live(objective_functions,
                                    num_bees=300,
                                    max_iterations=500,
                                    switch_iterations=20,
-                                   patience=20, #can be changed up to 40
+                                   patience=20,
                                    initial_radius=0.3,
                                    final_radius=0.01,
                                    archive_size=10,
@@ -63,13 +118,10 @@ def adaptive_bee_optimization_live(objective_functions,
 
     positions = np.random.uniform(lb, ub, (num_bees, dims))
 
-    current_func = objective_functions[0]
+    # Initial swarm fitness — one batched call
+    fitness = robustness_batch(positions)
 
-    # Initial swarm fitness
-    fitness = np.array([
-        scalar_score(current_func(p))
-        for p in positions
-    ])
+    diversity = np.mean(np.std(positions, axis=0))
 
     best_idx = np.argmin(fitness)
     best_pos = positions[best_idx].copy()
@@ -84,20 +136,17 @@ def adaptive_bee_optimization_live(objective_functions,
         archive_positions.append(best_pos.copy())
         archive_fitness.append(best_fit)
 
-
     fitness_history = []
 
     no_improve_counter = 0
     switch_counter = 0
 
     elite_count = max(1, int(0.05 * num_bees))
-
-    levy_prob = 0.35 #can be up to 0.3 or 0.4
-    scout_ratio = 0.25 #can be up to 0.3
+    scout_ratio = 0.25
 
     # Convergence plot
     plt.ion()
-    fig, ax = plt.subplots(figsize=(8,4))
+    fig, ax = plt.subplots(figsize=(8, 4))
     line, = ax.plot([], [])
 
     ax.set_xlim(0, max_iterations)
@@ -106,61 +155,62 @@ def adaptive_bee_optimization_live(objective_functions,
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Fitness")
 
-    cardiac_trace = []
-    resp_trace = []
-    neural_trace = []
-    metabolic_trace = []
-
-    # Second plot window must be created externally
-    fig2, ax2 = None, None
-    lines = None
-
     # Main Optimization Loop
 
     for it in range(max_iterations):
 
-        t = it / max(1, max_iterations-1)
-        radius = initial_radius*(1-t) + final_radius*t
+        t = it / max(1, max_iterations - 1)
 
-        # Swarm evaluation
-        fitness = np.array([
-            scalar_score(current_func(p))
-            for p in positions
-        ])
+        radius = (
+            final_radius
+            + (initial_radius - final_radius) * (1 - t)
+            + 0.05 * np.sin(10 * np.pi * t)
+        )
 
-        idx = np.argmin(fitness)
+        levy_prob = 0.1 + 0.8 * (1 - np.exp(-no_improve_counter / 5))
+        levy_prob = min(0.8, levy_prob)
 
-        # Global best update
-        if fitness[idx] < best_fit:
+        if fitness[np.argmin(fitness)] < best_fit:
+            current_best_idx = np.argmin(fitness)
+            current_best_fit = fitness[current_best_idx]
 
-            best_fit = fitness[idx]
-            best_pos = positions[idx].copy()
-
-            no_improve_counter = 0
-
+            if current_best_fit < best_fit:
+                best_fit = current_best_fit
+                best_pos = positions[current_best_idx].copy()
+                no_improve_counter = 0
+            else:
+                no_improve_counter += 1
             if archive_size > 0:
                 archive_positions.append(best_pos.copy())
                 archive_fitness.append(best_fit)
 
                 if len(archive_positions) > archive_size:
-
-                    combined = list(zip(
-                        archive_positions,
-                        archive_fitness
-                    ))
-
-                    combined.sort(key=lambda x: x[1])
+                    combined = sorted(zip(archive_positions, archive_fitness), key=lambda x: x[1])
                     combined = combined[:archive_size]
-
-                    archive_positions = [c[0] for c in combined]
-                    archive_fitness = [c[1] for c in combined]
-
+                    if combined:
+                        archive_positions, archive_fitness = zip(*combined)
+                        archive_positions = list(archive_positions)
+                        archive_fitness = list(archive_fitness)
         else:
             no_improve_counter += 1
 
+        # Anti-stagnation
+
+        diversity = np.mean(np.std(positions, axis=0))
+        scale = np.mean(ub - lb) + 1e-12
+        div_norm = diversity / scale
+        if no_improve_counter > patience:
+            print(f"Stagnation detected at iter {it}, injecting diversity")
+            worst_idx = np.argsort(fitness)[int(0.7 * num_bees):]
+            positions[worst_idx] = best_pos + np.random.normal(
+                0, 0.2 * (ub - lb), size=(len(worst_idx), dims)
+            )
+            levy_prob = min(0.8, levy_prob + 0.2)
+            no_improve_counter = 0
+
         fitness_history.append(best_fit)
 
-        # Probability normalization safety block
+        # Probability normalization
         inv = 1.0 / (1.0 + fitness - np.min(fitness))
         denom = np.sum(inv)
 
@@ -172,6 +222,22 @@ def adaptive_bee_optimization_live(objective_functions,
         order = np.argsort(fitness)
         elites_idx = order[:elite_count]
 
+        # Diversity measurement
+        diversity = np.mean(np.std(positions, axis=0))
+        div_norm  = diversity / np.mean(ub - lb)
+
+        if div_norm < 0.12:
+            worst_idx = np.argsort(fitness)[int(0.5 * num_bees):]
+            positions[worst_idx] = np.random.uniform(lb, ub, (len(worst_idx), dims))
+            positions = reflect_bounds(positions, lb, ub)
+
+        top_k   = min(5, num_bees)
+        leaders = positions[np.argsort(fitness)[:top_k]]
+
+        # ── Build all trials first, then evaluate in ONE batch ──────────────
+
+        trials = positions.copy()
+
         # Exploration Phase
         for i in range(num_bees):
 
@@ -179,90 +245,110 @@ def adaptive_bee_optimization_live(objective_functions,
                 continue
 
             if np.random.rand() < levy_prob:
-
-                step = levy_flight(dims)*(ub-lb)*0.05
+                step  = levy_flight(dims) * (ub - lb) * (0.03 + 0.07 * (1 - t))
                 trial = positions[i] + step
 
             else:
-
-                j = np.random.choice(num_bees, p=probs)
+                j        = np.random.choice(num_bees, p=probs)
                 neighbor = positions[j]
+                leader   = leaders[np.random.randint(top_k)]
+                best_pull = 0.03 * (leader - positions[i])
 
-                phi = np.random.normal(0,1,size=dims)*radius
-                trial = positions[i] + phi*(positions[i]-neighbor)
+                phi          = np.random.normal(0, 1, size=dims) * radius
+                differential = phi * (neighbor - positions[i])
 
-                trial += np.random.normal(
-                    0,0.01*(ub-lb), size=dims)
+                if archive_size > 0 and len(archive_positions) > 1:
+                    archive_choice = archive_positions[np.random.randint(len(archive_positions))]
+                    archive_pull = 0.05 * np.random.rand(dims) * (archive_choice - positions[i])
+                    archive_pull = 0         
+                else:
+                    archive_pull = 0
 
-            trial = reflect_bounds(trial, lb, ub)
+                noise = np.random.normal(0, 0.005 * (1 - t) * (ub - lb), size=dims)
 
-            f_trial = scalar_score(current_func(trial))
+                trial = (
+                    positions[i]
+                    + differential
+                    + 0.4 * best_pull
+                    + archive_pull
+                    + noise
+                )
 
-            if f_trial < fitness[i]:
-                positions[i] = trial
-                fitness[i] = f_trial
+            trials[i] = reflect_bounds(trial, lb, ub)
 
-        # Onlooker Phase
-        num_onlookers = int((1-scout_ratio)*num_bees)
+        # ONE batch eval for exploration trials
+        trial_fitness = robustness_batch(trials)
+        improved      = trial_fitness < fitness
+        positions[improved] = trials[improved]
+        fitness[improved]   = trial_fitness[improved]
 
-        for _ in range(num_onlookers):
-
-            k = np.random.choice(num_bees, p=probs)
-
-            if k in elites_idx:
-                continue
-
-            phi = np.random.normal(0,1,size=dims)*radius
-            trial = positions[k] + phi*(best_pos-positions[k])
-
-            trial = reflect_bounds(trial, lb, ub)
-
-            f_trial = scalar_score(current_func(trial))
-
-            if f_trial < fitness[k]:
-                positions[k] = trial
-                fitness[k] = f_trial
-
-        # Mirror Learning
-        mirrored = mirror_population(positions, lb, ub)
+        # Crossover — build trials then batch eval
+        cross_trials = positions.copy()
 
         for i in range(num_bees):
+            j          = np.random.randint(num_bees)
+            cross_mask = np.random.rand(dims) < 0.5
+            alpha = np.random.rand(dims)
+            cross_trials[i] = reflect_bounds(
+                alpha * positions[i] + (1 - alpha) * positions[j],
+                lb, ub
+            )
 
-            f_mirror = scalar_score(current_func(mirrored[i]))
+        cross_fitness = robustness_batch(cross_trials)
+        improved      = cross_fitness < fitness
+        positions[improved] = cross_trials[improved]
+        fitness[improved]   = cross_fitness[improved]
 
-            if f_mirror < fitness[i]:
-                positions[i] = mirrored[i]
-                fitness[i] = f_mirror
+        # Onlooker Phase — build trials then batch eval
+        num_onlookers   = int((1 - scout_ratio) * num_bees)
+        onlooker_trials = positions.copy()
+        onlooker_mask   = np.zeros(num_bees, dtype=bool)
 
-        # Elite Reinforcement
-        for rank_idx, ei in enumerate(elites_idx):
+        for _ in range(num_onlookers):
+            k = np.random.choice(num_bees, p=probs)
+            if k in elites_idx:
+                continue
+            phi   = np.random.normal(0, 1, size=dims) * radius
+            trial = positions[k] + phi * (best_pos - positions[k])
+            onlooker_trials[k] = reflect_bounds(trial, lb, ub)
+            onlooker_mask[k]   = True
+
+        if onlooker_mask.any():
+            onlooker_fitness = robustness_batch(onlooker_trials)
+            improved = onlooker_mask & (onlooker_fitness < fitness)
+            positions[improved] = onlooker_trials[improved]
+            fitness[improved]   = onlooker_fitness[improved]
+
+        # Mirror Learning — batch eval
+        mirrored       = mirror_population(positions, lb, ub)
+        mirror_fitness = robustness_batch(mirrored)
+        improved       = mirror_fitness < fitness
+        positions[improved] = mirrored[improved]
+        fitness[improved]   = mirror_fitness[improved]
+
+        # Elite Reinforcement (no eval needed, positions perturbed in place)
+        for ei in elites_idx:
             if np.random.rand() < 0.7:
-                positions[rank_idx] = positions[ei] + np.random.normal(
-                    0, 0.02*(ub-lb),
-                    size=dims
-        )
+                if np.random.rand() < 0.3:
+                    positions[ei] += np.random.normal(0, 0.01 * (ub - lb), size=dims)
 
-        positions[0] = best_pos.copy()
+        if np.random.rand() < 0.3:
+            positions[0] = best_pos.copy()
 
         switch_counter += 1
 
         # Plot convergence
         if it % 1 == 0:
-
-            line.set_data(
-                range(len(fitness_history)),
-                fitness_history
-            )
-
+            line.set_data(range(len(fitness_history)), fitness_history)
             ax.relim()
             ax.autoscale_view()
-
             fig.canvas.draw()
             fig.canvas.flush_events()
 
             print(
                 f"Iter {it:04d}: "
                 f"Best fitness = {best_fit:.5e} "
+                f"| Diversity = {diversity:.4f} "
                 f"| Archive size = {len(archive_positions)}"
             )
 
