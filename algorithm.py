@@ -194,18 +194,25 @@ def adaptive_bee_optimization_live(objective_functions,
         else:
             no_improve_counter += 1
 
-        # Anti-stagnation
-
-        diversity = np.mean(np.std(positions, axis=0))
-        scale = np.mean(ub - lb) + 1e-12
-        div_norm = diversity / scale
         if no_improve_counter > patience:
             print(f"Stagnation detected at iter {it}, injecting diversity")
+
             worst_idx = np.argsort(fitness)[int(0.7 * num_bees):]
-            positions[worst_idx] = best_pos + np.random.normal(
-                0, 0.5 * (ub - lb), size=(len(worst_idx), dims)
+
+            # Split worst into two groups
+            split = len(worst_idx) // 2
+            global_idx = worst_idx[:split]
+            local_idx = worst_idx[split:]
+
+            # GLOBAL random reset (true exploration)
+            positions[global_idx] = np.random.uniform(lb, ub, size=(len(global_idx), dims))
+
+            # LOCAL noisy reset around best
+            positions[local_idx] = best_pos + np.random.normal(
+                0, 0.5 * (ub - lb), size=(len(local_idx), dims)
             )
-            levy_prob = min(0.8, levy_prob + 0.2)
+
+            levy_prob = min(0.9, levy_prob + 0.3)
             no_improve_counter = 0
 
         fitness_history.append(best_fit)
