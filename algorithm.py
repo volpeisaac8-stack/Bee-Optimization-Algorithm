@@ -203,7 +203,7 @@ def adaptive_bee_optimization_live(objective_functions,
             print(f"Stagnation detected at iter {it}, injecting diversity")
             worst_idx = np.argsort(fitness)[int(0.7 * num_bees):]
             positions[worst_idx] = best_pos + np.random.normal(
-                0, 0.2 * (ub - lb), size=(len(worst_idx), dims)
+                0, 0.5 * (ub - lb), size=(len(worst_idx), dims)
             )
             levy_prob = min(0.8, levy_prob + 0.2)
             no_improve_counter = 0
