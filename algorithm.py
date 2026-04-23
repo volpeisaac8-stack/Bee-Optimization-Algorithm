@@ -90,6 +90,7 @@ def robustness_batch(population, shock_magnitude=0.3, K=3):
         + np.var(metabolic_trace, axis=0)
         + oxygen_violation
         + recovery_penalty + shock_response_var
+        + 0.2 * np.mean(np.abs(np.diff(heart_trace, axis=0)), axis=0)
     )
 
     return fitness  # shape: (N_bees,)
@@ -161,11 +162,31 @@ def adaptive_bee_optimization_live(objective_functions,
 
         t = it / max(1, max_iterations - 1)
 
-        radius = (
-            final_radius
-            + (initial_radius - final_radius) * (1 - t)
-            + 0.05 * np.sin(10 * np.pi * t)
-        )
+        # ================= EXPLOITATION PHASE =================
+        if t > 0.6:   # <-- start earlier (important)
+
+            # soft collapse instead of hard collapse
+            positions += 0.3 * (best_pos - positions)
+
+            # TRUE LOCAL SEARCH (strong + adaptive)
+            if it % 2 == 0:
+                for _ in range(10):   # increase from 20 → 30
+                    epsilon = (0.02 * (1 - t) + 0.005) * (ub - lb)
+
+                    local_trial = best_pos + np.random.normal(0, epsilon, size=dims)
+                    local_trial = reflect_bounds(local_trial, lb, ub)
+
+                    local_fit = robustness_batch(local_trial.reshape(1, -1))[0]
+
+                    if local_fit < best_fit:
+                        best_fit = local_fit
+                        best_pos = local_trial.copy()
+
+                fitness = robustness_batch(positions)
+                continue
+        # =====================================================
+
+        radius = final_radius + (initial_radius - final_radius) * (0.5 + 0.5*np.cos(np.pi * t))
 
         levy_prob = 0.1 + 0.8 * (1 - np.exp(-no_improve_counter / 5))
         levy_prob = min(0.8, levy_prob)
@@ -178,6 +199,19 @@ def adaptive_bee_optimization_live(objective_functions,
                 best_fit = current_best_fit
                 best_pos = positions[current_best_idx].copy()
                 no_improve_counter = 0
+
+                for _ in range(5):
+                    epsilon = 0.005 * (1 - t)**2 * (ub - lb)
+
+                    local_trial = best_pos + np.random.normal(0, epsilon, size=dims)
+                    local_trial = reflect_bounds(local_trial, lb, ub)
+
+                    local_fit = robustness_batch(local_trial.reshape(1, -1))[0]
+
+                    if local_fit < best_fit:
+                        best_fit = local_fit
+                        best_pos = local_trial.copy()
+
             else:
                 no_improve_counter += 1
             if archive_size > 0:
@@ -208,9 +242,18 @@ def adaptive_bee_optimization_live(objective_functions,
             positions[global_idx] = np.random.uniform(lb, ub, size=(len(global_idx), dims))
 
             # LOCAL noisy reset around best
-            positions[local_idx] = best_pos + np.random.normal(
-                0, 0.5 * (ub - lb), size=(len(local_idx), dims)
-            )
+            # stronger escape mechanism
+            n_local = len(local_idx)
+            half = n_local // 2
+
+            # half full random restart
+            positions[local_idx[:half]] = np.random.uniform(lb, ub, (half, dims))
+
+            # half directional escape (not centered on best)
+            escape = np.random.normal(0, 1, size=(n_local - half, dims))
+            escape /= (np.linalg.norm(escape, axis=1, keepdims=True) + 1e-9)
+
+            positions[local_idx[half:]] = best_pos + escape * (0.4 * (ub - lb))
 
             levy_prob = min(0.9, levy_prob + 0.3)
             no_improve_counter = 0
@@ -259,19 +302,18 @@ def adaptive_bee_optimization_live(objective_functions,
                 j        = np.random.choice(num_bees, p=probs)
                 neighbor = positions[j]
                 leader   = leaders[np.random.randint(top_k)]
-                best_pull = 0.03 * (leader - positions[i])
+                best_pull = (0.1 + 0.2 * (1 - t)) * (leader - positions[i])
 
                 phi          = np.random.normal(0, 1, size=dims) * radius
                 differential = phi * (neighbor - positions[i])
 
                 if archive_size > 0 and len(archive_positions) > 1:
                     archive_choice = archive_positions[np.random.randint(len(archive_positions))]
-                    archive_pull = 0.05 * np.random.rand(dims) * (archive_choice - positions[i])
-                    archive_pull = 0         
+                    archive_pull = -0.05 * (archive_choice - positions[i])                
                 else:
                     archive_pull = 0
 
-                noise = np.random.normal(0, 0.005 * (1 - t) * (ub - lb), size=dims)
+                noise = np.random.normal(0, 0.001 * (1 - t)**2 * (ub - lb), size=dims)
 
                 trial = (
                     positions[i]
@@ -300,11 +342,11 @@ def adaptive_bee_optimization_live(objective_functions,
                 alpha * positions[i] + (1 - alpha) * positions[j],
                 lb, ub
             )
-
-        cross_fitness = robustness_batch(cross_trials)
-        improved      = cross_fitness < fitness
-        positions[improved] = cross_trials[improved]
-        fitness[improved]   = cross_fitness[improved]
+        if it % 2 == 0:
+            cross_fitness = robustness_batch(cross_trials)
+            improved = cross_fitness < fitness
+            positions[improved] = cross_trials[improved]
+            fitness[improved] = cross_fitness[improved]
 
         # Onlooker Phase — build trials then batch eval
         num_onlookers   = int((1 - scout_ratio) * num_bees)
@@ -333,8 +375,12 @@ def adaptive_bee_optimization_live(objective_functions,
         positions[improved] = mirrored[improved]
         fitness[improved]   = mirror_fitness[improved]
 
+
         # Elite Reinforcement (no eval needed, positions perturbed in place)
         for ei in elites_idx:
+            # ================= FORCE CONVERGENCE (LATE STAGE) =================
+            if t > 0.8:
+                positions += 0.2 * (best_pos - positions)
             if np.random.rand() < 0.7:
                 if np.random.rand() < 0.3:
                     positions[ei] += np.random.normal(0, 0.01 * (ub - lb), size=dims)
@@ -345,10 +391,11 @@ def adaptive_bee_optimization_live(objective_functions,
         switch_counter += 1
 
         # Plot convergence
-        if it % 1 == 0:
+        if it % 5 == 0:
             line.set_data(range(len(fitness_history)), fitness_history)
-            ax.relim()
-            ax.autoscale_view()
+            if it % 5 == 0:
+                ax.relim()
+                ax.autoscale_view()
             fig.canvas.draw()
             fig.canvas.flush_events()
 
