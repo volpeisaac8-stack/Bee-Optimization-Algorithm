@@ -66,7 +66,7 @@ def robustness_batch(population, shock_magnitude=0.3, K=3):
             R += shock_R
 
         dH = k_hr*(1 - H) - 0.5*M + 0.3*R - 0.2*H**3
-        dR = k_oxygen*(H - R)
+        dR = k_oxygen * (H - R) - 0.3 * np.maximum(0, 1.05 - R)
         dN = k_neural*(R - 0.8) - 0.8*(N - 0.6)*(N - 1.4)*(N - 1.0)
         dM = k_metabolic*(1.2 - R) + 0.1*np.abs(N - 1)
 
@@ -89,6 +89,7 @@ def robustness_batch(population, shock_magnitude=0.3, K=3):
         + np.var(neural_trace, axis=0)
         + np.var(metabolic_trace, axis=0)
         + recovery_penalty + shock_response_var
+        + 5.0 * oxygen_violation
         + 0.2 * np.mean(np.abs(np.diff(heart_trace, axis=0)), axis=0)
     )
 
