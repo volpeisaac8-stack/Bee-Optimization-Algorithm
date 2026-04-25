@@ -656,20 +656,27 @@ def interpret_experiment_results(csv_file="results/summary.csv", alpha=0.05):
     print("")
 
 
-    # 5. CONSTRAINT BEHAVIOR
+    # 5. CONSTRAINT BEHAVIOR (FIXED)
     print("5. CONSTRAINT SATISFACTION")
     print("-" * 40)
 
-    oxygen_max = df["oxygen_deficit"].max()
+    violations = df["oxygen_deficit"] > 0
 
-    if oxygen_max == 0:
-        print("Oxygen constraint: NEVER violated (inactive constraint)")
+    viol_rate = np.mean(violations)
+    mean_violation = df["oxygen_deficit"].mean()
+    max_violation = df["oxygen_deficit"].max()
+
+    print(f"Violation rate (final solutions only): {viol_rate:.2%}")
+    print(f"Mean violation magnitude: {mean_violation:.6f}")
+    print(f"Worst-case violation: {max_violation:.6f}")
+
+    # Strong interpretation
+    if viol_rate == 0:
+        print("Constraint strictly satisfied across all runs ✅")
+    elif viol_rate < 0.1:
+        print("Constraint mostly satisfied with rare violations ⚠️")
     else:
-        viol_rate = np.mean(df["oxygen_deficit"] > 0)
-        print(f"Oxygen constraint active")
-        print(f"Violation rate: {viol_rate:.2%}")
-
-    print("")
+        print("Constraint frequently violated ❌ (feasible region may be small)")
 
 
     # 6. BEST OBSERVED SOLUTION
@@ -719,11 +726,12 @@ def interpret_experiment_results(csv_file="results/summary.csv", alpha=0.05):
     print("- Results should be interpreted as empirical, not theoretical optimum")
     print("\n" + "="*60)
 
-#scalar fitness
+#scalar fitness draft
 def scalar_fitness(params):
         obj = robustness_under_stress(params)
 
         oxygen_deficit = obj[3]
+
 
         mean_ref = np.array([0.02, 0.02, 0.02, 0.05, 0.05])
         std_ref  = np.array([0.01, 0.01, 0.01, 0.02, 0.02])
@@ -734,10 +742,15 @@ def scalar_fitness(params):
 
         base_fitness = np.sum(weights * normalized)
 
-        # smooth constraint penalty
-        oxygen_penalty = 1000 * max(0.0, oxygen_deficit - 0.08)
+        # Hard Constraint Penalty
+        oxygen_threshold = 0.08
+        penalty = 1e6
+        
+        if oxygen_deficit > oxygen_threshold:
+            return penalty
 
-        return base_fitness + oxygen_penalty
+        return base_fitness
+
 
 # Benchmarking
 
@@ -765,10 +778,13 @@ if __name__ == "__main__":
 
         base_fitness = np.sum(weights * normalized)
 
-        # smooth constraint penalty
-        oxygen_penalty = 1000 * max(0.0, oxygen_deficit - 0.08)
-
-        return base_fitness + oxygen_penalty
+        # Hard Constraint Penalty
+        oxygen_threshold = 0.08
+        penalty = 1e6
+        
+        if oxygen_deficit > oxygen_threshold:
+            return penalty
+        return base_fitness
 
 
 

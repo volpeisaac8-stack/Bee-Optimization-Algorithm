@@ -88,12 +88,11 @@ def robustness_batch(population, shock_magnitude=0.3, K=3):
         np.var(heart_trace, axis=0)
         + np.var(neural_trace, axis=0)
         + np.var(metabolic_trace, axis=0)
-        + oxygen_violation
         + recovery_penalty + shock_response_var
         + 0.2 * np.mean(np.abs(np.diff(heart_trace, axis=0)), axis=0)
     )
 
-    return fitness  # shape: (N_bees,)
+    return fitness, oxygen_violation  # shape: (N_bees,)
 
 
 # Adaptive Bee Optimization Live Engine
@@ -120,13 +119,21 @@ def adaptive_bee_optimization_live(objective_functions,
     positions = np.random.uniform(lb, ub, (num_bees, dims))
 
     # Initial swarm fitness — one batched call
-    fitness = robustness_batch(positions)
+    fitness, violation = robustness_batch(positions)
 
     diversity = np.mean(np.std(positions, axis=0))
 
-    best_idx = np.argmin(fitness)
+    feasible = violation < 1e-6
+
+    if np.any(feasible):
+        masked_fitness = fitness.copy()
+        masked_fitness[~feasible] = 1e12
+        best_idx = np.argmin(masked_fitness)
+    else:
+        best_idx = np.argmin(violation)
     best_pos = positions[best_idx].copy()
     best_fit = fitness[best_idx]
+    best_violation = violation[best_idx]
 
     # ================= MEMORY ARCHIVE =================
 
@@ -161,8 +168,8 @@ def adaptive_bee_optimization_live(objective_functions,
     for it in range(max_iterations):
 
         t = it / max(1, max_iterations - 1)
-
-        # ================= EXPLOITATION PHASE =================
+        FEAS_TOL = 1e-6
+# ================= EXPLOITATION PHASE =================
         if t > 0.6:   # <-- start earlier (important)
 
             # soft collapse instead of hard collapse
@@ -170,20 +177,32 @@ def adaptive_bee_optimization_live(objective_functions,
 
             # TRUE LOCAL SEARCH (strong + adaptive)
             if it % 2 == 0:
-                for _ in range(10):   # increase from 20 → 30
+                for _ in range(10):
                     epsilon = (0.02 * (1 - t) + 0.005) * (ub - lb)
 
                     local_trial = best_pos + np.random.normal(0, epsilon, size=dims)
                     local_trial = reflect_bounds(local_trial, lb, ub)
 
-                    local_fit = robustness_batch(local_trial.reshape(1, -1))[0]
+                    local_fit, local_violation = robustness_batch(local_trial.reshape(1, -1))
+                    local_fit = local_fit[0]
+                    local_violation = local_violation[0]
 
-                    if local_fit < best_fit:
+                    if (local_violation < 1e-6 and best_violation >= 1e-6) or \
+                    (local_violation < 1e-6 and best_violation < 1e-6 and local_fit < best_fit) or \
+                    (local_violation >= 1e-6 and best_violation >= 1e-6 and local_violation < best_violation):
+
                         best_fit = local_fit
                         best_pos = local_trial.copy()
+                        best_violation = local_violation
 
-                fitness = robustness_batch(positions)
+                fitness, violation = robustness_batch(positions)
+
+                positions[0] = best_pos.copy()
+                fitness[0] = best_fit
+                violation[0] = best_violation
+
                 continue
+        # =====================================================
         # =====================================================
 
         radius = final_radius + (initial_radius - final_radius) * (0.5 + 0.5*np.cos(np.pi * t))
@@ -206,7 +225,9 @@ def adaptive_bee_optimization_live(objective_functions,
                     local_trial = best_pos + np.random.normal(0, epsilon, size=dims)
                     local_trial = reflect_bounds(local_trial, lb, ub)
 
-                    local_fit = robustness_batch(local_trial.reshape(1, -1))[0]
+                    local_fit, local_violation = robustness_batch(local_trial.reshape(1, -1))
+                    local_fit = local_fit[0]
+                    local_violation = local_violation[0]
 
                     if local_fit < best_fit:
                         best_fit = local_fit
@@ -326,10 +347,18 @@ def adaptive_bee_optimization_live(objective_functions,
             trials[i] = reflect_bounds(trial, lb, ub)
 
         # ONE batch eval for exploration trials
-        trial_fitness = robustness_batch(trials)
-        improved      = trial_fitness < fitness
+        trial_fitness, trial_violation = robustness_batch(trials)
+        feasible_current = violation < FEAS_TOL
+        feasible_trial   = trial_violation < FEAS_TOL
+
+        improved = (
+            (feasible_trial & ~feasible_current) |
+            (feasible_trial & feasible_current & (trial_fitness < fitness)) |
+            (~feasible_trial & ~feasible_current & (trial_violation < violation))
+        )
         positions[improved] = trials[improved]
         fitness[improved]   = trial_fitness[improved]
+        violation[improved] = trial_violation[improved]
 
         # Crossover — build trials then batch eval
         cross_trials = positions.copy()
@@ -343,10 +372,20 @@ def adaptive_bee_optimization_live(objective_functions,
                 lb, ub
             )
         if it % 2 == 0:
-            cross_fitness = robustness_batch(cross_trials)
-            improved = cross_fitness < fitness
+            cross_fitness, cross_violation = robustness_batch(cross_trials)
+
+            feasible_current = violation < 1e-6
+            feasible_trial   = cross_violation < 1e-6
+
+            improved = (
+                (feasible_trial & ~feasible_current) |
+                (feasible_trial & feasible_current & (cross_fitness < fitness)) |
+                (~feasible_trial & ~feasible_current & (cross_violation < violation))
+            )
+
             positions[improved] = cross_trials[improved]
-            fitness[improved] = cross_fitness[improved]
+            fitness[improved]   = cross_fitness[improved]
+            violation[improved] = cross_violation[improved]
 
         # Onlooker Phase — build trials then batch eval
         num_onlookers   = int((1 - scout_ratio) * num_bees)
@@ -363,24 +402,44 @@ def adaptive_bee_optimization_live(objective_functions,
             onlooker_mask[k]   = True
 
         if onlooker_mask.any():
-            onlooker_fitness = robustness_batch(onlooker_trials)
-            improved = onlooker_mask & (onlooker_fitness < fitness)
+            onlooker_fitness, onlooker_violation = robustness_batch(onlooker_trials)
+
+            feasible_current = violation < 1e-6
+            feasible_trial   = onlooker_violation < 1e-6
+
+            improved = onlooker_mask & (
+                (feasible_trial & ~feasible_current) |
+                (feasible_trial & feasible_current & (onlooker_fitness < fitness)) |
+                (~feasible_trial & ~feasible_current & (onlooker_violation < violation))
+            )
+
             positions[improved] = onlooker_trials[improved]
             fitness[improved]   = onlooker_fitness[improved]
+            violation[improved] = onlooker_violation[improved]
 
         # Mirror Learning — batch eval
         mirrored       = mirror_population(positions, lb, ub)
-        mirror_fitness = robustness_batch(mirrored)
-        improved       = mirror_fitness < fitness
+        mirror_fitness, mirror_violation = robustness_batch(mirrored)
+
+        feasible_current = violation < 1e-6
+        feasible_trial   = mirror_violation < FEAS_TOL
+
+        improved = (
+            (feasible_trial & ~feasible_current) |
+            (feasible_trial & feasible_current & (mirror_fitness < fitness)) |
+            (~feasible_trial & ~feasible_current & (mirror_violation < violation))
+        )
+
         positions[improved] = mirrored[improved]
         fitness[improved]   = mirror_fitness[improved]
+        violation[improved] = mirror_violation[improved]
 
 
         # Elite Reinforcement (no eval needed, positions perturbed in place)
+        if t > 0.8:
+            positions += 0.2 * (best_pos - positions)
+
         for ei in elites_idx:
-            # ================= FORCE CONVERGENCE (LATE STAGE) =================
-            if t > 0.8:
-                positions += 0.2 * (best_pos - positions)
             if np.random.rand() < 0.7:
                 if np.random.rand() < 0.3:
                     positions[ei] += np.random.normal(0, 0.01 * (ub - lb), size=dims)
