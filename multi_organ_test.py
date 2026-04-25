@@ -748,7 +748,7 @@ def scalar_fitness(params):
         
         if oxygen_deficit > oxygen_threshold:
             return penalty
-
+        
         return base_fitness
 
 
@@ -759,9 +759,9 @@ if __name__ == "__main__":
     min_bounds = [0, 0, 0, 0]
     max_bounds = [2, 2, 2, 2]
 
-    num_bees       = 200
+    num_bees = int(input("Number of bees: "))
     max_iterations = int(input("How many iterations: "))
-    runs           = int(input("How many runs: "))
+    runs = int(input("How many runs: "))
 
     #scalarization
     def scalar_fitness(params):
