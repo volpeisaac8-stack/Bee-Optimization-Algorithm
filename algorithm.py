@@ -32,11 +32,7 @@ def mirror_population(positions, lb, ub):
 # Batched ODE Evaluator — evaluates entire swarm in one vectorized pass
 
 def robustness_batch(population, shock_magnitude=0.3, K=3):
-    """
-    Evaluate entire swarm at once using vectorized numpy.
-    population shape: (N_bees, 4)
-    returns fitness shape: (N_bees,)
-    """
+
     N_bees = population.shape[0]
     T = 200
     dt = 0.02
@@ -136,7 +132,7 @@ def adaptive_bee_optimization_live(objective_functions,
     best_fit = fitness[best_idx]
     best_violation = violation[best_idx]
 
-    # ================= MEMORY ARCHIVE =================
+    # Memory archive
 
     archive_positions = []
     archive_fitness = []
@@ -171,12 +167,12 @@ def adaptive_bee_optimization_live(objective_functions,
         t = it / max(1, max_iterations - 1)
         FEAS_TOL = 1e-6
 # ================= EXPLOITATION PHASE =================
-        if t > 0.6:   # <-- start earlier (important)
+        if t > 0.6:   
 
             # soft collapse instead of hard collapse
             positions += 0.3 * (best_pos - positions)
 
-            # TRUE LOCAL SEARCH (strong + adaptive)
+            # Local Search
             if it % 2 == 0:
                 for _ in range(10):
                     epsilon = (0.02 * (1 - t) + 0.005) * (ub - lb)
@@ -203,8 +199,7 @@ def adaptive_bee_optimization_live(objective_functions,
                 violation[0] = best_violation
 
                 continue
-        # =====================================================
-        # =====================================================
+ 
 
         radius = final_radius + (initial_radius - final_radius) * (0.5 + 0.5*np.cos(np.pi * t))
 
@@ -260,7 +255,7 @@ def adaptive_bee_optimization_live(objective_functions,
             global_idx = worst_idx[:split]
             local_idx = worst_idx[split:]
 
-            # GLOBAL random reset (true exploration)
+            # GLOBAL random reset 
             positions[global_idx] = np.random.uniform(lb, ub, size=(len(global_idx), dims))
 
             # LOCAL noisy reset around best
@@ -306,7 +301,7 @@ def adaptive_bee_optimization_live(objective_functions,
         top_k   = min(5, num_bees)
         leaders = positions[np.argsort(fitness)[:top_k]]
 
-        # ── Build all trials first, then evaluate in ONE batch ──────────────
+        #  Build all trials first then evaluate in ONE batch
 
         trials = positions.copy()
 
@@ -436,7 +431,7 @@ def adaptive_bee_optimization_live(objective_functions,
         violation[improved] = mirror_violation[improved]
 
 
-        # Elite Reinforcement (no eval needed, positions perturbed in place)
+        # Elite Reinforcement 
         if t > 0.8:
             positions += 0.2 * (best_pos - positions)
 

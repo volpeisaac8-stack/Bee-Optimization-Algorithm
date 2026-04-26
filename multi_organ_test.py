@@ -127,7 +127,7 @@ def update_archive(solution, fitness_vector):
 
     pareto_archive = new_archive
 
-# Multi-Objective Projection Fitness (kept for reference / landscape plotting)
+# Multi-Objective Projection Fitness 
 
 def multi_organ_coupled_system(params):
 
