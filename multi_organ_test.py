@@ -6,7 +6,7 @@ from animation import demo_animation
 import json
 import pandas as pd
 import os
-
+import time
 # Synthetic Multi-Organ Homeostasis Sandbox Model
 
 STATE_DIM = 5
@@ -788,7 +788,7 @@ if __name__ == "__main__":
 
 
 
-
+   
     def run_experiment():
 
         results   = []
@@ -797,7 +797,7 @@ if __name__ == "__main__":
         for seed in range(runs):
 
             print(f"Running trial {seed+1}/{runs}")
-
+            
             best_pos, best_fit, history = adaptive_bee_optimization_live(
                 objective_functions=[scalar_fitness],
                 min_bounds=min_bounds,
@@ -807,7 +807,7 @@ if __name__ == "__main__":
                 archive_size=10,
                 seed=seed
             )
-
+            
             results.append(best_fit)
             histories.append(history)
 
@@ -824,7 +824,14 @@ if __name__ == "__main__":
 
     print("\n===== Portfolio Benchmark Run =====")
 
+    #start timer
+    start_time = time.perf_counter()
+    #execute
     results, histories = run_experiment()
+    #end timer
+    elapsed = time.perf_counter() - start_time
+
+    print(f"\nTotal experiment time: {elapsed:.2f} seconds")
 
     print("\nBenchmark Summary")
     print("--------------------")
