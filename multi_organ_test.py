@@ -478,7 +478,7 @@ def save_experiment_results(run_id, best_pos, best_fit, history, folder="results
     })
     history_df.to_csv(history_file, index=False)
 
-
+#AI
 def save_metadata():
 
     os.makedirs("results", exist_ok=True)
@@ -497,7 +497,7 @@ def save_metadata():
 
     with open("results/metadata.json", "w") as f:
         json.dump(metadata, f, indent=4)
-
+#END OF AI
 
 # Plot generation
 
@@ -656,7 +656,8 @@ def interpret_experiment_results(csv_file="results/summary.csv", alpha=0.05):
     print("")
 
 
-    # 5. CONSTRAINT BEHAVIOR (FIXED)
+
+    # 5. CONSTRAINT BEHAVIOR 
     print("5. CONSTRAINT SATISFACTION")
     print("-" * 40)
 
@@ -670,14 +671,14 @@ def interpret_experiment_results(csv_file="results/summary.csv", alpha=0.05):
     print(f"Mean violation magnitude: {mean_violation:.6f}")
     print(f"Worst-case violation: {max_violation:.6f}")
 
-    # Strong interpretation
+    #AI
     if viol_rate == 0:
         print("Constraint strictly satisfied across all runs ✅")
     elif viol_rate < 0.1:
         print("Constraint mostly satisfied with rare violations ⚠️")
     else:
         print("Constraint frequently violated ❌ (feasible region may be small)")
-
+    #END OF AI
 
     # 6. BEST OBSERVED SOLUTION
     print("6. BEST OBSERVED SOLUTION")
