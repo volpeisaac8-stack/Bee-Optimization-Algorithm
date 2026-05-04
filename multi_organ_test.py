@@ -441,7 +441,7 @@ if choice1 == "y":
     )
 
 
-# Saving code
+# Saving code boa
 
 def save_experiment_results(run_id, best_pos, best_fit, history, folder="results"):
 
@@ -476,6 +476,45 @@ def save_experiment_results(run_id, best_pos, best_fit, history, folder="results
         "iteration": np.arange(len(history)),
         "fitness":   history
     })
+    history_df.to_csv(history_file, index=False)
+
+#Saving code PSO
+def save_pso_experiment_results(run_id, best_pos, best_fit, history, folder="results"):
+
+    os.makedirs(folder, exist_ok=True)
+
+    true_obj = robustness_under_stress(best_pos)
+
+    summary_file = os.path.join(folder, "pso_summary.csv")
+
+    summary_data = pd.DataFrame([{
+        "run": run_id,
+        "seed": run_id,
+        "best_fitness": best_fit,
+        "k_hr": best_pos[0],
+        "k_oxygen": best_pos[1],
+        "k_neural": best_pos[2],
+        "k_metabolic": best_pos[3],
+        "heart_var": true_obj[0],
+        "neural_var": true_obj[1],
+        "metabolic_var": true_obj[2],
+        "oxygen_deficit": true_obj[3],
+        "recovery_penalty": true_obj[4],
+        "algorithm": "PSO"
+    }])
+
+    if os.path.exists(summary_file):
+        summary_data.to_csv(summary_file, mode='a', header=False, index=False)
+    else:
+        summary_data.to_csv(summary_file, index=False)
+
+    history_file = os.path.join(folder, f"pso_history_run_{run_id}.csv")
+
+    history_df = pd.DataFrame({
+        "iteration": np.arange(len(history)),
+        "fitness": history
+    })
+
     history_df.to_csv(history_file, index=False)
 
 #AI INSPIRED
@@ -822,13 +861,52 @@ if __name__ == "__main__":
             )
 
         return np.array(results), np.array(histories)
+    
+    #PSO Run
+    from PSO_algorithm import particle_swarm_optimization
+    def run_experiment_pso():
+
+        results   = []
+        histories = []
+
+        for seed in range(runs):
+
+            print(f"Running PSO trial {seed+1}/{runs}")
+            
+            best_pos, best_fit, history = particle_swarm_optimization(
+                objective_function=scalar_fitness,
+                min_bounds=min_bounds,
+                max_bounds=max_bounds,
+                num_particles=num_bees,   # match bee count for fairness
+                max_iterations=max_iterations,
+                seed=seed
+            )
+            
+            results.append(best_fit)
+            histories.append(history)
+
+            update_archive(best_pos, robustness_under_stress(best_pos))
+
+            save_pso_experiment_results(
+                run_id=f"PSO_{seed}",   # distinguish from BOA
+                best_pos=best_pos,
+                best_fit=best_fit,
+                history=history
+            )
+
+        return np.array(results), np.array(histories)
 
     print("\n===== Portfolio Benchmark Run =====")
 
     #start timer
     start_time = time.perf_counter()
-    #execute
+    #execute BOA
+    print("\n===== BOA Run =====")
     results, histories = run_experiment()
+
+    #Execute PSO
+    print("\n===== PSO Run =====")
+    results_pso, histories_pso = run_experiment_pso()
     #end timer
     elapsed = time.perf_counter() - start_time
 
@@ -840,6 +918,13 @@ if __name__ == "__main__":
     print("Std Fitness  :", np.std(results))
     print("Best Fitness :", np.min(results))
     print("Worst Fitness:", np.max(results))
+
+    boa_df = pd.read_csv("results/summary.csv")
+    pso_df = pd.read_csv("results/pso_summary.csv")
+
+    print("\n===== COMPARISON =====")
+    print("BOA mean fitness:", boa_df["best_fitness"].mean())
+    print("PSO mean fitness:", pso_df["best_fitness"].mean())
 
     avg_curve = np.mean(histories, axis=0)
 
