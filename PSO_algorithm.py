@@ -18,6 +18,7 @@ def particle_swarm_optimization(
     lb = np.array(min_bounds)
     ub = np.array(max_bounds)
 
+    #AI
     print("\n==============================")
     print("   PARTICLE SWARM OPTIMIZER")
     print("==============================")
@@ -26,6 +27,7 @@ def particle_swarm_optimization(
     print(f"Iterations     : {max_iterations}")
     print(f"Bounds         : {lb} → {ub}")
     print("==============================\n")
+    #END OF AI
 
     # Initialize particles
     positions = np.random.uniform(lb, ub, (num_particles, dim))
@@ -75,7 +77,7 @@ def particle_swarm_optimization(
 
         history.append(gbest_fit)
 
-        # 🔥 PRINT PROGRESS EVERY 10 ITERATIONS + FIRST
+        #PRINT PROGRESS EVRY 2 ITERATIONS
         if t % 2 == 0 or t == max_iterations - 1:
             print(f"Iteration {t+1:4d} | Best Fitness: {gbest_fit:.6f}")
 

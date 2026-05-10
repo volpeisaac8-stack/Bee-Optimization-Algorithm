@@ -710,14 +710,13 @@ def interpret_experiment_results(csv_file="results/summary.csv", alpha=0.05):
     print(f"Mean violation magnitude: {mean_violation:.6f}")
     print(f"Worst-case violation: {max_violation:.6f}")
 
-    #AI
+    
     if viol_rate == 0:
         print("Constraint strictly satisfied across all runs ✅")
     elif viol_rate < 0.1:
         print("Constraint mostly satisfied with rare violations ⚠️")
     else:
         print("Constraint frequently violated ❌ (feasible region may be small)")
-    #END OF AI
 
     # 6. BEST OBSERVED SOLUTION
     print("6. BEST OBSERVED SOLUTION")
